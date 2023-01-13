@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.3.32929.385
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CS_formula_params_RegexMatchesReplace", "CS_formula_params_RegexMatchesReplace\CS_formula_params_RegexMatchesReplace.csproj", "{48F8F26A-A73D-4310-9CAA-D9A84BA7C014}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{48F8F26A-A73D-4310-9CAA-D9A84BA7C014}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{48F8F26A-A73D-4310-9CAA-D9A84BA7C014}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{48F8F26A-A73D-4310-9CAA-D9A84BA7C014}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{48F8F26A-A73D-4310-9CAA-D9A84BA7C014}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {4A0A4D97-CB1F-4675-99FE-137B9A4BFB36}
+	EndGlobalSection
+EndGlobal

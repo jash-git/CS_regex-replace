@@ -1,0 +1,1299 @@
+﻿
+document.addEventListener('DOMContentLoaded', function () {
+    deferCommentsContent();
+});
+
+function deferCommentsContent() {
+    if (window.jQuery)
+        domReadyCommentsContent();
+    else
+        setTimeout(function () { deferCommentsContent() }, 100);
+}
+
+var Comments = '';
+var _eventsBoundToComments = false;
+var commentsMinLength = 10;
+var mentionarraydata = '';
+var Type = '';
+var ContentId = '';
+var CurrentUser = '';
+var CurrentRole = '';
+var CurrentUserPhoto = '';
+var ContentUserId = '';
+var AllowPost = 'true';
+var LoginCheckReturnUrl = '';
+var pageSize = 10;
+var rootClass = '';
+var isApproved = true;
+var commentLoadedTimer = 0;
+var PreviousCommentId = "";
+
+function domReadyCommentsContent() {
+
+    isApproved = jQuery("#HiddenIsContentApproved").val();
+    mentionarraydata = [];
+    Type = jQuery("#hddType").val();
+    ContentId = jQuery("#hddContentId").val();
+    CurrentUser = jQuery("#hddCurrentUser").val();
+    CurrentRole = jQuery("#hddCurrentRole").val();
+    jQuery('#HiddenCommentPageNumber').val('1');
+    CurrentUserPhoto = jQuery("#hddCurrentUserPhoto").val();
+    ContentUserId = jQuery("#hddContentUserId").val();
+    LoginCheckReturnUrl = jQuery('#hiddenLoginCheckUrl').val();
+
+
+    if (isApproved == 'false') {
+        return false;
+    }
+
+    Comments = (function () {
+        rootClass = '.' + Type + ' ';
+
+        return {
+            //Get Comments
+            GetComments: function (parent_id) {
+                var pageNumber = jQuery('#HiddenCommentPageNumber').val();
+                var rootComments = jQuery(rootClass + '#RootComments');
+                var items = 0;
+                jQuery.ajax({
+                    type: "POST",
+                    contentType: "application/json; charset=utf-8",
+                    url: "/WebServices/Comments.asmx/GetComments",
+                    data: "{'id':'" + ContentId + "','type':'" + Type + "','pageNumber':'" + pageNumber + "', 'pageSize':'" + pageSize + "', 'parentId':" + parent_id + "}",
+                    async: false,
+                    beforeSend: function () {
+                        jQuery(rootClass + '#mainLoader').show();
+                    },
+                    success: function (response) {
+                        ProcessComments(response.d, Type);
+                        wrapComments();
+                        bindCachedComment();
+                    }
+                });
+            },
+
+            //Like Comment
+            LikeComment: function (id) {
+                var result = VerifyUser();
+                if (!result) {
+                    window.location.href = LoginCheckReturnUrl;
+                    return false;
+                }
+                var status;
+                jQuery.ajax({
+                    url: "/Handlers/CommentsHandler.ashx?method=like_comment&id=" + id + "&type=" + Type,
+                    type: "POST",
+                    async: false,
+                    beforeSend: function () {
+                        jQuery(rootClass + '#ajaxLoader_' + id).show();
+                    },
+                    success: function (response) {
+                        status = response;
+                        jQuery(rootClass + '#ajaxLoader_' + id).hide();
+                    },
+                    Error: ShowError
+                });
+                if (status == '1') {
+                    var likes = jQuery(rootClass + '#Likes_' + id).text();
+                    jQuery(rootClass + '#Likes_' + id).text(parseFloat(likes) + 1);
+                }
+                else if (status == '2') {
+                    var likes = jQuery(rootClass + '#Likes_' + id).text();
+                    jQuery(rootClass + '#Likes_' + id).text(parseFloat(likes) - 1);
+                }
+
+            },
+
+            //Delete Comment
+            DeleteComment: function (id, parent_id) {
+                var result = VerifyUser();
+                if (!result) {
+                    window.location.href = LoginCheckReturnUrl;
+                    return false;
+                }
+                if (!confirm("Are you sure you want to delete this comment ?")) {
+                    return false;
+                }
+                var status;
+                jQuery.ajax({
+                    url: "/Handlers/CommentsHandler.ashx?method=delte_comment&id=" + id + "&type=" + Type,
+                    type: "POST",
+                    async: false,
+                    success: function (response) {
+                        status = response;
+                    },
+                    Error: ShowError
+                });
+                if (status == '1') {
+                    var count = jQuery(rootClass + '#Replies_' + id).text();
+                    jQuery(rootClass + '#comment_' + id).remove();
+                    if (parent_id == 0) {
+                        ManageAlternateColor();
+                        ManagePaging('d', count);
+
+                         if (GetParentCommentsCount() == 0) {
+                            Comments.GetComments(0);
+                        }
+                    }
+                    else {
+                        var replies = jQuery(rootClass + '#Replies_' +parent_id).text();
+                        var totalComments = jQuery(rootClass + '#TotalComments');
+                        var commentCount = jQuery(rootClass + '#CommentCount');
+
+                        jQuery(rootClass + '#Replies_' +parent_id).text(parseFloat(replies) -1);
+
+                        var totalCount = parseFloat(totalComments.data('total-count')) -1;
+
+                        if (totalCount === 0) {
+                            totalComments.text("0");
+                        } else {
+                            totalComments.text(totalCount);
+                    }
+                        totalComments.data('total-count', totalCount);
+                        commentCount.text(parseFloat(GetParentCommentsCount()) +parseFloat(GetChildCommentsCount()));
+                        jQuery("#spanComments").text(totalCount);
+                    }
+
+                    if (parseInt(jQuery(rootClass + '#TotalComments').data('total-count')) === 0) {
+                        jQuery(rootClass + '#TotalComments').text("0");
+                    }
+
+                }
+            },
+
+            //Post Comment
+            PostComment: function (parent_id, e) {
+                var comment = null;
+                jQuery('textarea.mention').mentionsInput('val', function (text) {
+                    comment = text;
+                });
+                comment = FormatText(comment);
+                comment = GetCommentData(comment, 'textarea.mention');
+                comment = comment.charAt(0).toUpperCase() + comment.slice(1);
+                if (e.keyCode == 13) {
+                    var rootComments = jQuery(rootClass + '#RootComments');
+                    var totalComments = jQuery('#HiddenTotalComments');
+                    var commentCount = jQuery(rootClass + '#CommentCount');
+                    if (jQuery('<p>' + unescape(comment) + '</p>').clone().find('a').remove().end().text().trim().replace(/\s+/g,' ').length < commentsMinLength) {
+                        setTimeout(function () {
+                            if (jQuery('.comment-hint').length > 0) {
+                                jQuery('.comment-hint').remove();
+                            }
+                            var divAlertPost = document.createElement("span");
+                            divAlertPost.setAttribute("style", "z-index:1;position: absolute;right: 0px;top: 56px;background:#fff;color: red;padding: 2px 5px;border: 1px solid #e8e8e8;border-left: 4px solid red;box-sizing: border-box;padding-left: 13px;");
+                            divAlertPost.innerHTML = "Comment can't be less than " + commentsMinLength + " characters.";
+                            jQuery(divAlertPost).insertAfter(jQuery('textarea.mention'));
+                            setTimeout(function () {
+                                jQuery(divAlertPost).fadeOut(500, function () {
+                                    jQuery(divAlertPost).remove();
+                                });
+                            }, 4000);
+                        }, 50);
+                        e.preventDefault();
+                        return false;
+                    }
+                    if (comment != '') {
+                        var result = VerifyUser();
+                        if (!result) {
+                            var commentToCache = { "commentId": parent_id, "Comment": comment };
+                            localStorage.setItem(Type + "_" + ContentId, JSON.stringify(commentToCache));
+                            window.location.href = LoginCheckReturnUrl;
+                            return false;
+                        }
+                        jQuery.ajax({
+                            url: "/WebServices/Comments.asmx/InsertComment",
+                            data: "{'content_id':'" + ContentId + "','type':'" + Type + "','parent_id':'" + parent_id + "', 'description':" + JSON.stringify(comment) + "}",
+                            type: "POST",
+                            contentType: "application/json; charset=utf-8",
+                            async: false,
+                            beforeSend: function () {
+                                jQuery(rootClass + '#PostLoader').show(); //Show Ajax Loader
+                                var commentToCache = { "commentId": parent_id, "Comment": comment };
+                                localStorage.setItem(Type + "_" + ContentId, JSON.stringify(commentToCache));
+                            },
+                            success: function (response) {
+                                localStorage.removeItem(Type + '_' + ContentId);
+                                var data = response.d[0];
+                                var mailtosendids = [];
+                                var mailtobesendids = null;
+                                jQuery('textarea.mention').mentionsInput('getMentions', function (data) {
+                                    jQuery.each(data, function (idx, obj) {
+                                        mailtosendids.push(obj.id);
+                                    });
+                                });
+                                jQuery('textarea.mention').mentionsInput('reset', function (data) {
+                                });
+                                rootComments.prepend(BuildComment(data));
+
+                                jQuery("#comment_" + data.CommentId).hide().slideDown(500, function () {
+                                    jQuery(this).attr("style", "");
+                                });
+
+                                /*--Update LoggedIn User Image: if session is updated on another tab--*/
+                                if (jQuery('#ctl00_RootPostComment .image img').length > 0) {
+                                    if (jQuery('#ctl00_RootPostComment img').attr('src') != data.PhotoUrl) {
+                                        jQuery('#ctl00_RootPostComment img').attr('src', data.PhotoUrl)
+                                                                        .attr('title', data.FullName)
+                                                                        .attr('alt', data.FullName);
+                                    }
+                                }
+
+                                ManageAlternateColor();
+                                jQuery(rootClass + '#InputCommentText_' + parent_id).val('').trigger('autosize.resize');                            
+                                if (parseFloat(GetParentCommentsCount()) > parseFloat(pageSize)) {
+                                    //rootComments.find('div').last().remove();
+                                    jQuery("#RootComments > div").last().remove();
+                                }
+                                ManagePaging('i', 0);
+                                SendMail(comment, '0', data.ParentUserId, data.CommentId);
+                                if (mailtosendids.length > 0) {
+                                    mailtobesendids = mailtosendids.join(",");
+                                    SendNotification(comment, mailtobesendids)
+                                }
+                                jQuery(rootClass + '#PostLoader').hide(); //Hide Ajax Loader
+                                PreventDefault(e);
+                            },
+                            Error: ShowError
+                        });
+                    }
+                    else { PreventDefault(e); }
+                }
+            },
+
+            //Show Reply TextBox
+            ShowReplyBox: function (id) {              
+                var element = jQuery(rootClass + '#CommentReplies_' + id);
+                if (jQuery(rootClass + '#CommentReplies_' + id + ' #ReplyContainer_' + id).length)
+                {
+                    if (jQuery(rootClass + '#CommentReplies_' + id + ' #ReplyContainer_' + id + ":visible").length>0) {
+                        jQuery(".esc-msg").remove();
+                        jQuery(rootClass + '#CommentReplies_' + id + ' #ReplyContainer_' + id).hide();
+                    } else {
+                        jQuery(rootClass + '#CommentReplies_' + id + ' #ReplyContainer_' + id).show();
+                    }
+                }
+                else {
+                    var postReply = buildPostReplyBox(id, CurrentUserPhoto);
+                    element.append(postReply);
+
+                    jQuery(rootClass + 'textarea#ReplyComment_' + id).elastic();
+                    GetValueAtTheRate(rootClass + 'textarea#ReplyComment_' + id);
+                    jQuery(rootClass + '#ReplyComment_' + id).focus();
+                    jQuery(".esc-msg").remove();
+                    removePrevComment();
+                    PreviousCommentId = "#ReplyContainer_" + id
+                }
+                jQuery(rootClass + '#CommentReplies_' + id).show();
+            },
+
+            //Show Replies
+            ShowReplies: function (id, anchr) {                
+                var element = jQuery(rootClass + '#CommentReplies_' + id);
+                var commentCount = jQuery(rootClass + '#CommentCount');
+                //if (element.is(":visible") &&  == '')
+                var pageSize = 50;
+                if (jQuery(rootClass + '#Replies_' + id).text() != '0') {
+                    jQuery.ajax({
+                        type: "POST",
+                        contentType: "application/json; charset=utf-8",
+                        url: "/WebServices/Comments.asmx/GetComments",
+                        data: "{'id':'" + ContentId + "','type': '" + Type + "','pageNumber':'1', 'pageSize':'" + pageSize + "', 'parentId':" + id + "}",
+                        beforeSend: function () {
+                            jQuery(rootClass + '#ajaxLoader_' + id).show();
+                        },
+                        success: function (response) {
+                            var d = response.d;
+                            element.html('');
+                            var data = d[0];
+                            jQuery.each(data, function (index) {
+                                data[index].CommentId;
+
+                                element.prepend(BulildCommentReply(data[index])); //Prepend root comments
+                            });
+                            jQuery(rootClass + '#ajaxLoader_' + id).hide();
+                            jQuery(anchr).remove();
+                            jQuery('#CommentReplies_' + id).show();
+                            commentCount.text(parseFloat(GetParentCommentsCount()) + parseFloat(GetChildCommentsCount()));
+                        }
+                    });
+                }
+            },
+
+            //Expend/Collapse Comment Replies
+            ToggleReplies: function (id) {
+                if (jQuery(rootClass + '#CommentReplies_' + id).html().length) {
+                    if (jQuery(rootClass + '#CommentReplies_' + id + ' .commentDescription').length > 0 || jQuery(rootClass +'#ReplyContainer_'+ id).is(':visible'))
+                    {
+                        jQuery(rootClass + '#CommentReplies_' + id).toggle();
+                    }
+                }
+            },
+
+            //Post Comment Reply
+            PostCommentReply: function (parent_id, e) {                
+                var comment = null;
+                jQuery(rootClass + '#ReplyComment_' + parent_id).mentionsInput('val', function (text) {
+                    comment = text;
+                });
+                comment = FormatText(comment);
+                comment = GetCommentData(comment, rootClass + '#ReplyComment_' + parent_id);
+                comment = comment.charAt(0).toUpperCase() + comment.slice(1);
+                                
+               
+                if (e.keyCode == 13) {
+                    var replyContainer = jQuery(rootClass + '#ReplyContainer_' + parent_id);
+                    var totalComments = jQuery(rootClass + '#TotalComments');
+                    var commentCount = jQuery(rootClass + '#CommentCount');
+                                        
+                    if (jQuery('<p>' + unescape(comment) + '</p>').clone().find('a').remove().end().text().trim().replace(/\s+/g, ' ').length < commentsMinLength) {
+                        setTimeout(function () {
+                            jQuery(jQuery('.reply-comment-hint').length > 0)
+                            {
+                                jQuery('.reply-comment-hint pull-right').remove();
+                            }
+                            var divAlertReply = document.createElement("span");
+                            divAlertReply.setAttribute("style", "z-index:1;position: absolute;right: 0px;bottom: -20px;background:#fff;color: red;padding: 2px 5px;border: 1px solid #e8e8e8;border-left: 4px solid red;box-sizing: border-box;padding-left: 13px;z-index:1");
+                            divAlertReply.innerHTML = "Comment can't be less than "+commentsMinLength+" characters.";
+                            jQuery(divAlertReply).insertAfter(jQuery(rootClass + '#ReplyComment_' + parent_id).parent().parent());
+                            setTimeout(function () {
+                                jQuery(divAlertReply).fadeOut(500, function () {
+                                    jQuery(divAlertReply).remove();
+                                });
+                            }, 4000);
+                        }, 50);
+                        e.preventDefault();
+                        return false;
+                    }                    
+                    jQuery(rootClass + '#ReplyComment_' + parent_id).mentionsInput('reset', function (data) {
+                    });
+                    
+                    if (comment != '') {
+                        var result = VerifyUser();
+                        if (!result) {
+                            var commentToCache = { "commentId": parent_id, "Comment": comment };
+                            localStorage.setItem(Type + "_" + ContentId, JSON.stringify(commentToCache));
+                            window.location.href = LoginCheckReturnUrl;
+                            return false;
+                        }
+
+                        jQuery.ajax({
+                            url: "/WebServices/Comments.asmx/InsertComment",
+                            data: "{'content_id':'" + ContentId + "','type':'" + Type + "','parent_id':'" + parent_id + "', 'description':'" + comment + "'}",
+                            type: "POST",
+                            contentType: "application/json; charset=utf-8",
+                            async: false,
+                            beforeSend: function () {
+                                jQuery(rootClass + '#PostLoader_' + parent_id).show(); //Show Ajax Loader
+                                var commentToCache = { "commentId": parent_id, "Comment": comment };
+                                localStorage.setItem(Type + "_" + ContentId, JSON.stringify(commentToCache));
+                            },
+                            success: function (response) {
+                                localStorage.removeItem(Type + '_' + ContentId);
+                                var data = response.d[0];
+                                replyContainer.before(BulildCommentReply(data));
+
+                                /*--Update LoggedIn User Image: if session is updated---*/
+                                if (replyContainer.find('.image img').length > 0) {
+                                    if (replyContainer.find('.image img').attr('src') != data.PhotoUrl) {
+                                        replyContainer.find('.image img')
+                                                .attr('src', data.PhotoUrl)
+                                                .attr('title', data.FullName)
+                                                .attr('alt', data.FullName);
+                                    }
+                                }
+
+                                jQuery(rootClass + '#ReplyComment_' + parent_id).val('').trigger('autosize.resize');
+                                var replies = jQuery(rootClass + '#Replies_' + parent_id).text();
+                                jQuery(rootClass + '#Replies_' + parent_id).text(parseFloat(replies) + 1);
+
+                                var totalCount = parseFloat(totalComments.data('total-count')) + 1;
+
+                                if (totalCount === 0) {
+                                    totalComments.text("0");
+                                } else {
+                                    totalComments.text(totalCount);
+                                }
+
+                                totalComments.data('total-count', totalCount);
+                                commentCount.text(parseFloat(GetParentCommentsCount()) + parseFloat(GetChildCommentsCount()));
+                                jQuery('#spanComments').text(totalCount); //Manages Header Comment Count
+                                SendMail(comment, '1', data.ParentUserId, data.CommentId);
+                                jQuery(rootClass + '#PostLoader_' + parent_id).hide(); //Hide Ajax Loader
+                                PreventDefault(e);
+                            },
+                            Error: ShowError
+                        });
+
+                    }
+                    else { PreventDefault(e); }
+                    
+                }
+            },
+
+            //Show Edit Panel
+            ShowEditView: function (commentId) {                
+                var editButton = jQuery(rootClass + '#comment_' + commentId + ' .commentDescription div:eq(0) .icon-edit-content2');
+                var content = jQuery(rootClass + '#comment_' + commentId + ' .commentDescription div:eq(1)');                
+                
+                var editView = '<textarea id="CommentToEdit_' + commentId + '" onkeyup="Comments.RemovePreviousComment(' + commentId + ',this,event,\'edit\');" onkeypress="Comments.EditComment(' + commentId + ',event);" class="form-control" spellcheck="true"  onfocus="this.value = this.value;" style="margin-bottom:4px;"  ></textarea>\
+                <img id="ajaxLoaderEdit_' + commentId + '" src="/Images/csharp/ajax-loader-small.gif" class="hide" alt="Loading..." />';
+
+                editButton.hide().next().hide();
+                editButton.prev().hide();
+                content.after(editView);
+                var edittext = content.html();
+                var existingusers = edittext.match(/<a[^>]+>([^<]+)<\/a>/g);
+                var hyperlink = null;
+                var username = null;
+                
+                if (existingusers) {
+                    for (var i = 0; i <= existingusers.length - 1; i++) {
+                        hyperlink = jQuery(existingusers[i]).attr('href');
+                        username = existingusers[i].match(/<a[^>]+>([^<]+)<\/a>/)[1];
+                        mentionarraydata.push(username + '/^g*~o0#g*^/' + hyperlink);
+                        edittext = edittext.replace(existingusers[i], username);
+                    }
+                }
+                jQuery(rootClass + '#CommentToEdit_' + commentId).focus();
+                jQuery(rootClass + '#CommentToEdit_' + commentId).val(edittext);
+                content.hide();
+                jQuery(rootClass + 'textarea#CommentToEdit_' + commentId).elastic();
+                
+                removePrevComment();
+                PreviousCommentId = commentId;
+                jQuery(".esc-msg").remove();
+                var span = document.createElement("span");
+                span.innerHTML = "Press Esc key to cancel";
+                span.setAttribute("class", "esc-msg hidden-md-down");
+                span.setAttribute("style", "color:#ff0000;margin-left: 70px;display:block;margin-bottom:-12px;");
+                jQuery("#comment_" + commentId).before(span);
+            },
+
+            //Edit Comment
+            EditComment: function (commentId, e) {
+                var textBox = jQuery(rootClass + '#CommentToEdit_' + commentId);
+                var comment = jQuery(rootClass + '#CommentToEdit_' + commentId).val().trim();
+                comment = FormatText(comment);
+                comment = GetEditData(comment);
+
+                if (e.keyCode == 13) {
+                    var content = jQuery(rootClass + '#comment_' + commentId + ' .commentDescription div:eq(1)');
+                    textBox.val(textBox.val().replace('\n', ''));
+
+                    if (jQuery('<p>' + unescape(comment) + '</p>').clone().find('a').remove().end().text().trim().replace(/\s+/g, ' ').length < commentsMinLength) {
+                        setTimeout(function () {
+                            if (jQuery('.comment-hint').length > 0)
+                            {
+                                jQuery('.comment-hint').remove();
+                            }
+                            var divAlertEdit = document.createElement("span");
+                            divAlertEdit.setAttribute("style", "z-index:1;position: absolute;right: 0px;top: 56px;background:#fff;color: red;padding: 2px 5px;border: 1px solid #e8e8e8;border-left: 4px solid red;box-sizing: border-box;padding-left: 13px;z-index:1");
+                            divAlertEdit.innerHTML = "Comment can't be less than " + commentsMinLength + " characters.";
+                            jQuery(divAlertEdit).insertAfter(jQuery(rootClass + '#CommentToEdit_' + commentId));
+
+                            setTimeout(function () {
+                                jQuery(divAlertEdit).fadeOut(500, function () {
+                                    jQuery(divAlertEdit).remove();
+                                });
+                            }, 4000);
+                        }, 50);
+                        e.preventDefault();
+                        return false;
+                    }
+                    if (comment == content.text() || comment == '') {                        
+                        RemoveEditView(commentId);
+                        jQuery(".esc-msg").remove();
+                        removePrevComment();
+                        PreviousCommentId = "";
+                        PreventDefault(e);
+                    }
+                    else {
+                        var result = VerifyUser();
+                        if (!result) {
+                            window.location.href = LoginCheckReturnUrl;
+                            return false;
+                        }
+
+                        var status;
+                        jQuery.ajax({
+                            url: "/Handlers/CommentsHandler.ashx?method=edit_comment&id=" + commentId + "&type=" + Type,
+                            type: "POST",
+                            async: false,
+                            data: { description: comment },
+                            beforeSend: function () {
+                                jQuery(rootClass + '#ajaxLoaderEdit_' + commentId).show();
+                            },
+                            success: function (response) {
+                                status = response;
+                                PreventDefault(e);
+                                mentionarraydata.length = 0;
+
+                                jQuery(".esc-msg").remove();
+                                removePrevComment();
+                                PreviousCommentId = "";
+                            },
+                            Error: ShowError
+                        });
+                        if (status == '1') {
+                            content.html(decodeURIComponent(comment));
+                            RemoveEditView(commentId);
+                        }
+                    }
+                }
+            },
+
+            //Update Comment Follow Status
+            UpdateFollowStatus: function (checkBox) {
+                var status;
+                status = (jQuery(checkBox).is(':checked')) ? true : false;
+                jQuery.ajax({
+                    url: "/Handlers/CommentsHandler.ashx?method=comment_follow_status&id=" + ContentId + "&type=" + Type + "&status=" + status,
+                    type: "POST",
+                    async: false,
+                    beforeSend: function () {
+                        jQuery(rootClass + '#PostLoader').show(); //Show Ajax Loader
+                    },
+                    success: function (response) {
+                        if (response == '1')
+                            jQuery(rootClass + '#PostLoader').hide();
+                    },
+                    Error: ShowError
+                });
+            },
+
+            //View Previous Comments
+            ViewPreviousComments: function () {
+                var pageNumber = jQuery('#HiddenCommentPageNumber').val();
+                var totalComment = jQuery('#HiddenTotalComments').val();
+                if (parseFloat(totalComment) > (parseFloat(pageNumber) * pageSize)) {
+                    jQuery('#HiddenCommentPageNumber').val(parseFloat(pageNumber) + 1);
+                }
+                else {
+                    jQuery(rootClass + '#RootComments').text('');
+                    jQuery('#HiddenCommentPageNumber').val('1');
+                }
+                Comments.GetComments(0);
+            },
+
+            //Show editor options
+            ShowEditorOptions: function (container, e) {
+                jQuery(container).find('.comment-parent:first').show();
+            },
+
+            //Hide editor options
+            HideEditorOptions: function (container, e) {
+                jQuery(container).find('.comment-parent:first').hide();
+            },
+            //Show editor options
+            ShowEditorOptionsReply: function (container, e) {                    
+                jQuery(container).find('.comment-child:first').show();
+                jQuery(container).parent().siblings().find('.comment-parent').hide();
+                e.stopPropagation();
+            },
+
+            //Hide editor options
+            HideEditorOptionsReply: function (container, e) {
+                jQuery(container).find('.comment-child:first').hide();
+                e.stopPropagation();
+            },
+
+            ReportComment: function (commentId, commentedBy, comment, CommentedByUrl, CommentedByFullName) {
+                if (!confirm('Are you sure you want to report this comment?')) { return false; };
+                jQuery.ajax({
+                    url: "/Handlers/CommentsHandler.ashx?method=report_comment&CommentId=" + commentId + "&Comment=" + comment + "&CommentedBy=" + commentedBy + "&ContenType=" + Type + "&CommentedByUrl=" + CommentedByUrl + "&CommentedByFullName=" + CommentedByFullName,
+                    type: "POST",
+                    success: function (response) {
+                        if (response == "Login") {
+                            window.location = "/login?returnurl=" + window.location.href;
+                        }
+                        else if (response == "1") {
+                            alert("Successfully Reported.");
+                        }
+                        else if (response == "2") {
+                            alert("Already Reported.");
+                        }
+                        else {
+                            console.log("Error");
+                        }
+                    },
+                    error: function (err) {
+                        console.log(err);
+                    }
+                });
+                return false;
+            },
+            RemovePreviousComment: function (commentId, object, e, action) {
+                jQuery(".esc-msg").remove();
+                if (e.keyCode === 27) {
+                    PreviousCommentId = "";
+                    jQuery(object).val("");
+                    jQuery('.mentions-autocomplete-list').hide();
+                    jQuery("div.mentions>div").html("");
+                    switch (action) {
+                        case 'edit':
+                            RemoveEditView(commentId);
+                            break;
+                        case 'reply':
+                            jQuery("#ReplyContainer_" + commentId).remove();
+                            break;
+                    }
+                }
+                else {
+                    if (jQuery(object).val().trim().length > 0) {
+                        var span = document.createElement("span");
+                        span.innerHTML = "Press Esc key to cancel";
+                        span.setAttribute("class", "esc-msg hidden-md-down");
+                        span.setAttribute("style", "color:#ff0000;margin-left: 70px;display:block;margin-bottom:-12px;")
+                        switch (action) {
+                            case 'reply':
+                                jQuery("#ReplyContainer_" + commentId).before(span);
+                                jQuery("#InputCommentText_0").val("");
+                                break;
+                            case 'post':
+                                jQuery(".comment-body").prepend(span);
+                                removePrevComment();
+                                PreviousCommentId = "";
+                                break;
+                            case 'edit':
+                                jQuery("#comment_" + commentId).before(span);
+                                jQuery("#InputCommentText_0").val("");
+                                break;
+                        }
+                    }
+                }
+            }
+
+        }// End of return
+
+    }());
+
+
+
+
+    var processType = jQuery('#HiddenProcessType').val();
+    if (processType == 'common') {
+        Comments.GetComments(0);
+        GetValueAtTheRate('textarea.mention');
+
+        jQuery('#CommentIcon,#CommentIcon2').click(function () {
+            jQuery('#InputCommentText_0').focus();
+        });
+    }
+    else {
+        GetArticleCommnets();
+    }
+
+    jQuery.ajaxSetup({ cache: false });
+    if (jQuery('#hddAllowPost').val() == undefined) {
+        AllowPost = jQuery('#HiddenIsAllowPost').val();
+    }
+    if (AllowPost != undefined) {
+        if (AllowPost.toLowerCase() == 'false') {
+            jQuery('#RootPostComment').remove();
+        }
+    }
+
+    //GetValueAtTheRate('textarea.mention');
+
+    jQuery(document).on("click", function (event) {
+        var classname = event.target.className;
+        if (classname === 'mention') {
+            jQuery('.mentions-autocomplete-list').has('ul').show();
+        }
+        else {
+            jQuery('.mentions-autocomplete-list').hide();
+        }
+    });
+
+    //To Open Comment Box if close
+    jQuery('a[href="#ReadAndPostComment"]').on('click', function () {
+        if (jQuery('.accordianAnchor.plus').length > 0) {
+            jQuery('.accordianAnchor.plus').click();
+        }
+    });
+
+    if (window.location.hash.indexOf('ReadAndPostComment') > -1) {
+        waitForComments();
+    }
+
+
+    function waitForComments() {
+        if (jQuery('.mention').length > 0) {
+            scrollToComments();
+        }
+        else {
+            clearTimeout(commentLoadedTimer);
+            commentLoadedTimer = setTimeout(function () { waitForComments() }, 300);
+        }
+    }
+
+    function scrollToComments() {
+        jQuery('.accordianAnchor.plus').click();
+        if (jQuery(window).scrollTop() == 0) {
+            jQuery('html,body').animate({ scrollTop: jQuery('.mention').offset().top }, 1000);
+        }
+    }
+}
+
+function PreventDefault(e)//Function to prevent Default Events. Working in IE8
+{
+    if (e.preventDefault)
+        e.preventDefault();
+    else
+        e.returnValue = false;
+}
+
+function GetParentCommentsCount() {
+    var count = 0;
+    count = jQuery(rootClass + '#RootComments > div.media').size();
+    return count;
+}
+
+function GetChildCommentsCount() {
+    var childNodes = jQuery(rootClass + '#RootComments > div.pulsecomment div.commentcontent div div.ReplyComment').size();
+    var textareas = jQuery(rootClass + '#RootComments > div.pulsecomment div.commentcontent textarea').size();
+    if (childNodes > 0)
+        return childNodes - textareas;
+    else return 0;
+}
+
+function ManageAlternateColor() {
+    jQuery(rootClass + '#RootComments > div').removeClass("BackgroundWhite");
+    jQuery(rootClass + '#RootComments > div:odd').addClass("BackgroundWhite");
+}
+
+//        function FormatTextToInsert(text) {
+//            return escape((jQuery.trim(text)).replace('<', '&lt;').replace('>', '&gt;').replace('/', '&#47;').replace('"', '&quot;').replace('\n', ''));
+//        }
+
+function SendMail(comment, is_child_comment, parent_user, commentId) {
+    var ContentUserEmail = jQuery("#hddContentUserEmail").val();
+    jQuery.ajax({
+        url: "/Handlers/CommentsHandler.ashx?method=send_mail&type=" + Type,
+        data: {
+            description: unescape(comment),
+            content_title: jQuery('#hddContentTitle').val(),
+            content_user_id: ContentUserId,
+            is_child_comment: is_child_comment,
+            content_id: ContentId,
+            parent_user_id: parent_user,
+            request_url: window.location.protocol + "//" + window.location.hostname + window.location.pathname,//window.location.href,
+            content_url: window.location.pathname,
+            content_user_email: ContentUserEmail,
+            comment_id: commentId
+        },
+        type: "POST",
+        async: false,
+        success: function (response) {
+        }
+    });
+}
+
+function SendNotification(comment, mailtosendids) {
+    var pathname = window.location.href;
+    jQuery.ajax({
+        url: "/Handlers/CommentsHandler.ashx?method=send_notification&type=" + Type,
+        data: {
+            description: unescape(comment),
+            mailtosend: mailtosendids,
+            currenturl: pathname
+        },
+        type: "POST",
+        async: false,
+        success: function (response) {
+        }
+    });
+}
+
+function VerifyUser() {
+    var data;
+    LoginCheckReturnUrl = jQuery('#hiddenLoginCheckUrl').val();
+    jQuery.ajax({
+        url: "/Handlers/CommentsHandler.ashx?method=current_user",
+        type: "GET",
+        async: false,
+        success: function (response) {
+            data = jQuery.parseJSON(response)[0].user_name;
+        }
+    });
+    if (data == null || data == '') {
+        return false;
+    }
+    else {
+        return true;
+    }
+}
+
+function ManagePaging(action, count) {
+
+    var totalComments = jQuery(rootClass + '#TotalComments');
+    var commentCount = jQuery(rootClass + '#CommentCount');
+    var total_comments = jQuery.trim(jQuery('#HiddenTotalComments').val());
+
+    var totalCount = totalComments.data('total-count');
+
+    switch (action) {
+        case 'i': //increase
+            total_comments = parseFloat(total_comments) + 1;
+            if (totalCount === '' || totalCount === '0') {
+                totalCount = 1; //totalComments.text('(1)');
+            } else {
+                totalCount = parseFloat(totalCount) + 1;
+            }
+
+            if (totalCount === 0) {
+                totalComments.text("");
+            } else {
+                totalComments.text(totalCount);
+            }
+
+            totalComments.data('total-count', totalCount);
+
+            jQuery(rootClass + '#Paging').show();
+            break;
+        case 'd': //decrease
+            if (parseFloat(total_comments) <= 0) {
+                totalComments.text('0');
+                commentCount.text('');
+                jQuery(rootClass + '#Paging').hide();
+            }
+            else {
+                totalCount = parseFloat(totalCount) - (1 + parseFloat(count));
+                totalComments.text(totalCount);
+                totalComments.data('total-count', totalCount);
+                total_comments = parseFloat(total_comments) - 1;
+            }
+            break;
+    }
+    var parentComments = parseFloat(GetParentCommentsCount());
+    commentCount.text(parentComments + parseFloat(GetChildCommentsCount()));
+    jQuery('#HiddenTotalComments').val(total_comments);
+    jQuery('#HiddenCommentPageNumber').val(parseInt((parentComments - 1) / pageSize) + 1);
+    ManageViewMoreVisibility();
+    jQuery('#spanComments').text(totalCount); //Manages Header Comment Count
+    //jQuery('.headerControlscount').text('comments (' + total_comments + ')');
+}
+
+function ManageViewMoreVisibility() {
+    //  alert(rootClass);
+    var previousComments = jQuery('#ViewPreviousComments');
+    // var previousComments = jQuery(rootClass + '#ViewPreviousComments');
+    if (parseFloat(jQuery('#HiddenTotalComments').val()) > parseFloat(GetParentCommentsCount()))
+        previousComments.show();
+    else
+        previousComments.hide();
+}
+
+function RemoveEditView(commentId) {
+    var content = jQuery(rootClass + '#comment_' + commentId + ' .commentDescription div:eq(1)');
+    var editButton = jQuery(rootClass + '#comment_' + commentId + ' .commentDescription div:eq(0) .icon-edit-content2');
+    var textBox = jQuery(rootClass + '#CommentToEdit_' + commentId);
+    var ajaxLoader = jQuery(rootClass + '#ajaxLoaderEdit_' + commentId);
+    editButton.show().next().show();
+    editButton.prev().show();
+    textBox.val('');
+    textBox.remove();
+    ajaxLoader.remove();
+
+    content.show();
+}
+
+function ShowError() {
+    alert('There is some error processing your request');
+}
+
+
+
+function GetValueAtTheRate(id) {
+    jQuery(id).mentionsInput({
+        minChars: 1,
+        onDataRequest: function (mode, query, callback) {
+            jQuery.ajax({
+                type: "POST",
+                contentType: "application/json; charset=utf-8",
+                url: "/WebServices/CSharpSearch.asmx/GetAllFriendsFollowers",
+                data: "{'name':'" + query + "','user_id':'" + CurrentUser + "','content_id':'" + ContentId + "','type':'" + Type + "'}",
+                async: false,
+                success: function (response) {
+                    var data = response.d;
+                    var jasondata = [];
+                    var Id = null, Name = null, Avatar = null, Type = null;
+                    for (var i = 0; i <= data.length - 1; i++) {
+                        Id = data[i].Id
+                        Name = data[i].Name;
+                        Avatar = data[i].PhotoUrl;
+                        Type = data[i].AuthorUrl;
+                        var jasonobj = new JasonObj(Id, Name, Avatar, Type);
+                        jasondata.push(jasonobj);
+                    }
+                    //jasondata = _.filter(jasondata, function(item) { return item.name.toLowerCase().indexOf(query.toLowerCase()) > -1 });
+                    callback.call(this, jasondata);
+                }
+            });
+        }
+    });
+}
+
+var JasonObj = function (Id, Name, Avatar, Type) {
+    this.id = Id;
+    this.name = Name;
+    this.avatar = Avatar;
+    this.type = Type;
+};
+
+function GetCommentData(comment, id) {
+    var value = null;
+    var valuetobereplaced = null;
+    var userURL = null;
+    jQuery(id).mentionsInput('getMentions', function (data) {
+        jQuery.each(data, function (idx, obj) {
+            value = '@[' + obj.value + '](' + obj.type + ':' + obj.id + ')';
+            valuetobereplaced = FormatText(value);
+            userURL = '<a target="_blank" class="LinkNormalBlue" href="' + decodeURIComponent(obj.type) + '">' + obj.value + '</a>';
+            comment = comment.replace(valuetobereplaced, userURL);
+        });
+    });
+    return comment;
+}
+function FormatText(text) {
+    return escape((jQuery.trim(text)).replace(/\</g, '&lt;').replace(/\>/g, '&gt;').replace('/', '&#47;').replace('"', '&quot;').replace('\n', '').replace('\\', '&#92;'));
+}
+function GetEditData(comment) {
+    comment = unescape(comment);
+    if (mentionarraydata) {
+        var username = null;
+        var userlink = null;
+        for (var i = 0; i <= mentionarraydata.length - 1; i++) {
+            username = mentionarraydata[i].split('/^g*~o0#g*^/')[0];
+            userlink = mentionarraydata[i].split('/^g*~o0#g*^/')[1];
+            if (comment.indexOf(username) !== -1) {
+                comment = comment.replace(username, '<a target=_blank class=LinkNormalGray href=' + userlink + '>' + username + '</a>')
+            }
+        }
+        mentionarraydata.indexOf(0);// = 0;
+    }
+    return escape(comment);
+}
+
+/*To Get Article Comments */
+
+function GetArticleCommnets() {
+
+    var content_id = jQuery('#hddArticleID').val();
+    var content_userId = jQuery('#HiddenAuthorId').val();
+    var contentTitle = "";
+    if (jQuery('#HiddenFiledContentTitle').length > 0) {
+        contentTitle = jQuery('#HiddenFiledContentTitle').val().replace("'", "\\'");
+    }
+    var type = jQuery('#HiddenContentType').val();
+    var articleRawUrl = jQuery('#hddRawUrl').val();
+    IsAllowPost = jQuery("#HiddenIsAllowPost").val();
+    var pageNumber = 1;
+
+    jQuery.ajax({
+        type: "POST",
+        url: "/WebServices/CommonServices.asmx/GetArticleCommentsNew",
+        data: "{'ContentId':'" + content_id + "','ContentUserId':'" + content_userId + "','ContentTitle':'" + contentTitle + "','Type':'" + type + "','articleRawUrl':'" + articleRawUrl + "','pageSize':'" + pageSize + "','pageNumber':'" + pageNumber + "','isAllowPost':'" + IsAllowPost + "'}",
+        contentType: "application/json; charset=utf-8",
+        dataType: "json",
+        success: function (r) {
+            if (r.d.html.length > 0) {
+                jQuery('.commentsContainer').append(r.d.html);
+                VariableInitialization();
+                ProcessComments(r.d.comments, type);
+                wrapComments();
+                bindCachedComment();
+            }
+
+            //commentsMinLength = r.d.minLength;
+        },
+        complete: function () {
+            GetValueAtTheRate('textarea.mention');
+            //Bind Event id element is added into DOM
+            jQuery('#CommentIcon,#CommentIcon2').click(function () {
+                jQuery('#InputCommentText_0').focus();
+            });
+        }
+    });
+}
+
+function bindCachedComment() {
+    var commentFromCache = localStorage.getItem(Type + '_' + ContentId);
+    if (commentFromCache !== null) {
+        commentFromCache = JSON.parse(localStorage.getItem(Type + '_' + ContentId));
+        if (commentFromCache.commentId == 0) {
+            jQuery("#InputCommentText_0").val(unescape(commentFromCache.Comment));
+        }
+        else {
+            Comments.ShowReplyBox(commentFromCache.commentId);
+            jQuery("#ReplyComment_" + commentFromCache.commentId).val(unescape(commentFromCache.Comment));
+        }
+    }
+}
+
+function ProcessComments(response, type) {
+    var d = response;
+    var data = d[0];
+    var totalComments;
+    rootClass = '.' + type + ' ';
+    var rootComments = jQuery(rootClass + '#RootComments');
+    var pageNumber = jQuery('#HiddenCommentPageNumber').val();
+    var items = 0;
+
+    //To Hide Commets Header
+    if (data[0] == undefined) {
+        jQuery(rootClass + '#mainLoader').hide();
+        jQuery(rootClass + '#Paging').hide();
+    }
+    else {
+        jQuery.each(data, function (index) {
+            rootComments.append(BuildComment(data[index])); //Prepend root comments
+            if (pageNumber == 1 && index == 0) {
+                jQuery('#HiddenTotalComments').val(data[index].TotalComments);
+                if (d[2][index] == null || d[2][index] == undefined) {
+                    totalComments = data[index].TotalComments;
+                }
+                else {
+                    totalComments = parseFloat(data[index].TotalComments) + parseFloat(d[2][index].TotalComments);
+                }
+                if (totalComments === 0) {
+                    jQuery(rootClass + '#TotalComments').text("");
+                } else {
+                    jQuery(rootClass + '#TotalComments').text(totalComments); //set total comments only once.
+                }
+                jQuery(rootClass + '#TotalComments').data('total-count', totalComments);
+
+                jQuery('#spanComments').text(totalComments); //Manages Header Comment Count
+                //jQuery('.headerControlscount').text('comments (' + totalComments + ')');
+            }
+
+            items = parseFloat(items) + 1; //track for number of comments to show
+            ManageAlternateColor();
+        });
+
+        //Reply Binding starts here
+        var reply = d[1];
+        var element;
+
+        jQuery.each(reply, function (index) {
+            element = jQuery(rootClass + '#CommentReplies_' + reply[index].ParentId);
+            element.prepend(BulildCommentReply(reply[index]));
+            items = parseFloat(items) + 1;
+        });
+        //Reply Binding ends here
+
+        //Manage paging
+        if (items != 0 && parseFloat(pageNumber) >= 1) {
+            if (parseFloat(pageNumber) == 1)
+                jQuery(rootClass + '#CommentCount').text(items);
+            else
+                jQuery(rootClass + '#CommentCount').text(parseFloat(jQuery(rootClass + '#CommentCount').text()) + items);
+        }
+        else {
+            jQuery(rootClass + '#Paging').hide();
+        }
+
+        ManageViewMoreVisibility();
+        jQuery(rootClass + '#mainLoader').hide();
+    }
+    if (jQuery("#HiddenIsAllowPost").length > 0 && jQuery("#HiddenIsAllowPost").val() == "false") {
+        jQuery("#RootPostComment").hide();
+    }
+}
+
+
+function VariableInitialization() {
+    Type = jQuery("#hddType").val();
+    rootClass = Type;
+    ContentId = jQuery("#hddContentId").val();
+    CurrentUserPhoto = jQuery("#hddCurrentUserPhoto").val();
+    ContentUserId = jQuery("#hddContentUserId").val();
+    AllowPost = jQuery("#hddAllowPost").val();
+    LoginCheckReturnUrl = jQuery('#hiddenFieldReturnUrl').val();
+    CurrentUser = jQuery("#hddCurrentUser").val();
+    CurrentRole = jQuery("#hddCurrentRole").val();
+}
+
+
+function wrapComments() {
+    if (_eventsBoundToComments) { return; }
+    jQuery('#divViewPreviousComments').hide();
+    jQuery('.accordianDetail').hide();
+    jQuery('.accordianAnchor').click(function () {
+
+        if (jQuery(this).hasClass('plus')) {
+            jQuery(this).removeClass('plus').addClass('minus');
+            jQuery('.accordianDetail').slideDown("slow");
+            ManageViewMoreVisibility();
+            jQuery('#divViewPreviousComments').show();
+            jQuery('.mentions+#InputCommentText_0').focus();
+        }
+        else {
+            jQuery(this).removeClass('minus').addClass('plus');
+            jQuery('.accordianDetail').slideUp("slow");
+            jQuery('#divViewPreviousComments').hide();
+        }
+    });
+
+    jQuery('#commentsBox')
+        .click(function () {
+            jQuery('.accordianAnchor').click();
+        });
+    _eventsBoundToComments = true;
+
+    //Default Comment Box Showing 
+    jQuery(this).removeClass('plus').addClass('minus');
+    jQuery('.accordianDetail').slideDown("slow");
+    ManageViewMoreVisibility();
+    jQuery('#divViewPreviousComments').show();
+
+}
+
+/*------------New Written Code-------------------*/
+function BuildComment(obj) {
+    var authorUrl = obj.AuthorUrl;
+    var commentDescription = unescape(obj.Description);
+    var commentHtml;
+    //Image and Comment Text
+    
+    commentHtml = '<div class="media" id="comment_' + obj.CommentId + '" onmouseover="Comments.ShowEditorOptions(this,event);" onmouseout="Comments.HideEditorOptions(this,event);" >';
+    commentHtml += '<div class="media-left"><a href="' + authorUrl + '"><img class="user-image-56" alt="' + obj.FullName + '" title="' + obj.FullName + '" src="' + obj.PhotoUrl + '" /></a></div>';
+    commentHtml += '<div class="media-body"><div class="commentDescription">';
+
+    //Action Icons [Edit|Delete|RepotComment]
+    commentHtml += '<div class="comment-action-button comment-parent">';
+    if (CurrentUser == obj.UserId || CurrentRole == 'E' || CurrentRole == 'A') {
+        if (CurrentUser == obj.UserId || CurrentRole == 'A') {
+            commentHtml += '<a onclick="Comments.DeleteComment(' + obj.CommentId + ',' + obj.ParentId + ')" title="Delete" href="javascript:void(0)"  class="d-icon icon-delete-content2"></a>';
+        }
+
+        commentHtml += '<a onclick="Comments.ShowEditView(' + obj.CommentId + ')" href="javascript:void(0)" title="Edit" class="d-icon icon-edit-content2"></a>';
+        if (CurrentUser != obj.UserId) {
+            commentHtml += '<a class="icon-20 d-icon icon-flag" href="javascript:void(0)" onclick="return Comments.ReportComment(' + obj.CommentId + ',\'' + obj.UserId + '\',\'' + escape(commentDescription) + '\',\'' + authorUrl + '\',\'' + obj.FullName + '\');" title="Report this comment"></a> ';
+        }
+    }
+    else {
+        commentHtml += '<a class="d-icon icon-flag" href="javascript:void(0)" onclick="return Comments.ReportComment(' + obj.CommentId + ',\'' + obj.UserId + '\',\'' + escape(commentDescription) + '\',\'' + authorUrl + '\',\'' + obj.FullName + '\');" title="Report this comment"></a> ';
+    }
+    commentHtml += '</div><div data-comment class="commentDescription">' + commentDescription + '</div>';
+
+    //Comment Date and Posted By
+    commentHtml += '<div class="comment-info clearfix">\
+                    <span class="comment-time">\
+                    <i class="d-icon icon-clock-small"></i>' + obj.CreatedDate + '</span><a href="' + obj.AuthorUrl + '" alt="' + obj.FullName + '">' + obj.FullName + '</a></div>';
+
+    //Auhtor Statistics[Rank|Reputation|View]
+    var uerRank = obj.AuthorRank;
+    var uerRankToolTip = "Rank";
+    if (obj.IsInternal) {
+        uerRank = ((obj.UserType == 'A') ? 'Admin' : ((obj.UserType == 'E') ? 'Editor' : 'Tech Writer'));
+        uerRankToolTip = ((obj.UserType == 'A') ? 'Admin' : ((obj.UserType == 'E') ? 'Editor' : 'Tech Writer'));
+    }
+    commentHtml += '<div class="comment-info clearfix">';
+    commentHtml += '<span class="rpv-wrapper">\
+                    <span title="' + uerRankToolTip + '"><i class="d-icon icon-author-r"></i>' + uerRank + '</span>\
+                    <span title="Reputation"><i class="d-icon icon-author-p"></i>' + obj.AuthorPoints + '</span>\
+                    <span title="Total Views"><i class="d-icon icon-author-v"></i>' + obj.AuthorReadCount + '</span></span>';
+    commentHtml += '<ul class="list-inline comment-reply-wrapper">\
+                    <li title="Likes">\
+                        <img alt="Loading..." id="ajaxLoader_' + obj.CommentId + '" src="/Images/csharp/ajax-loader-small.gif" style="margin:4px 0px 0px 5px;" class="hide" />\
+                        <a href="javascript:void(0)" onclick="Comments.LikeComment(' + obj.CommentId + ')">\
+                        <i class="v-middle icon-20 d-icon icon-like-small"></i><span id="Likes_' + obj.CommentId + '" class="text-grey-600">' + obj.Likes + '</span> </a></li>\
+                    <li title="Replies"><a href="javascript:void(0)" onclick="Comments.ToggleReplies(' + obj.CommentId + ')" >\
+                    <i class="v-middle icon-20 d-icon icon-reply-small"></i>\
+                    <span id="Replies_' + obj.CommentId + '" class="text-grey-600">' + obj.Replies + '</span> </a></li>';
+
+    if (AllowPost.toLowerCase() == 'true') {
+        commentHtml += '<li class="text-grey-600">\
+                            <a class="text-grey-600" href="javascript:void(0)" onclick="Comments.ShowReplyBox(' + obj.CommentId + ')" title="Post Reply">\
+                            <i class="v-middle icon-20 d-icon icon-reply-all-small"></i>Reply</a></li>';
+    }
+    if (parseFloat(obj.Replies) > 3) {
+        commentHtml += '<li class="reply-collapse">\
+                            <a href="javascript:void(0)" onclick="Comments.ShowReplies(' + obj.CommentId + ', this)" title="Show All">\
+                            <i class="text-icon">' + obj.Replies + '</i></a></li>';
+    }
+
+    commentHtml += '</ul></div>';
+    commentHtml += '<div class="media comment-replies" id="CommentReplies_' + obj.CommentId + '"></div>';
+
+
+    commentHtml += "</div>";
+    return commentHtml;
+}
+
+function BulildCommentReply(obj) {
+    var authorUrl = obj.AuthorUrl;
+    var commentDescription = unescape(obj.Description);
+    var commentHtml;
+
+    //Image and Comment Text
+    var commentHtml = '<div class="media" id="comment_' + obj.CommentId + '" onmouseover="Comments.ShowEditorOptionsReply(this,event);" onmouseout="Comments.HideEditorOptionsReply(this,event);" >';
+    commentHtml += '<div class="media-left"><a href="' + authorUrl + '"><img class="user-image-56" alt="' + obj.FullName + '" title="' + obj.FullName + '" src="' + obj.PhotoUrl + '" /></a></div>';
+    commentHtml += '<div class="media-body"><div class="commentDescription">';
+
+    //Action Icons [Edit|Delete|RepotComment]
+    commentHtml += '<div class="comment-action-button comment-child">';
+    if (CurrentUser == obj.UserId || CurrentRole == 'E' || CurrentRole == 'A') {
+        if (CurrentUser == obj.UserId || CurrentRole == 'A') {
+            commentHtml += '<a onclick="Comments.DeleteComment(' + obj.CommentId + ',' + obj.ParentId + ')" title="Delete" href="javascript:void(0)"  class="d-icon icon-delete-content2"></a>';
+        }
+
+        commentHtml += '<a onclick="Comments.ShowEditView(' + obj.CommentId + ')" title="Edit" href="javascript:void(0)" class="d-icon icon-edit-content2"></a>';
+        if (CurrentUser != obj.UserId) {
+            commentHtml += '<a class="d-icon icon-flag" href="javascript:void(0)" onclick="return Comments.ReportComment(' + obj.CommentId + ',\'' + obj.UserId + '\',\'' + escape(commentDescription) + '\',\'' + authorUrl + '\',\'' + obj.FullName + '\');" title="Report this comment"></a> ';
+        }
+    }
+    else {
+        commentHtml += '<a href="javascript:void(0)" class="d-icon icon-flag" onclick="return Comments.ReportComment(' + obj.CommentId + ',\'' + obj.UserId + '\',\'' + escape(commentDescription) + '\',\'' + authorUrl + '\',\'' + obj.FullName + '\');" title="Report this comment"></a> ';
+    }
+    commentHtml += '</div><div data-comment class="commentDescription">' + commentDescription + '</div>';
+    //Comment Date and Posted By
+    commentHtml += '<div class="comment-info clearfix">\
+                    <span class="comment-time">\
+                    <i class="d-icon icon-clock-small"></i>' + obj.CreatedDate + '</span><a href="' + obj.AuthorUrl + '" alt="'+obj.FullName+'">' + obj.FullName + '</a></div>';
+
+    //Auhtor Statistics[Rank|Reputation|View]
+    var uerRank = obj.AuthorRank;
+    var uerRankToolTip = "Rank";
+    if (obj.IsInternal) {
+        uerRank = ((obj.UserType == 'A') ? 'Admin' : ((obj.UserType == 'E') ? 'Editor' : 'Tech Writer'));
+        uerRankToolTip = ((obj.UserType == 'A') ? 'Admin' : ((obj.UserType == 'E') ? 'Editor' : 'Tech Writer'));
+    }
+    commentHtml += '<div class="comment-info clearfix">';
+    commentHtml += '<span class="rpv-wrapper">\
+                    <span title="' + uerRankToolTip + '"><i class="d-icon icon-author-r"></i>' + uerRank + '</span>\
+                    <span title="Reputation"><i class="d-icon icon-author-p"></i>' + obj.AuthorPoints + '</span>\
+                    <span title="Total Views"><i class="d-icon icon-author-v"></i>' + obj.AuthorReadCount + '</span></span>  ';
+    commentHtml += '<ul class="list-inline comment-reply-wrapper">\
+                    <li title="Likes">\
+                    <img alt="Loading..." id="ajaxLoader_' + obj.CommentId + '" src="/Images/csharp/ajax-loader-small.gif" class="hide" />\
+                    <a href="javascript:void(0)" onclick="Comments.LikeComment(' + obj.CommentId + ')">\
+                        <i class="v-middle icon-20 d-icon icon-like-small"></i><span id="Likes_' + obj.CommentId + '" class="text-grey-600">' + obj.Likes + '</span> </a>\
+                    </li></ul>';
+    commentHtml += '</div>';
+
+    commentHtml += "</div>";
+
+    return commentHtml;
+}
+
+function buildPostReplyBox(id, CurrentUserPhoto) {
+    var postReplyBox = '<div class="media" id="ReplyContainer_' + id + '">\
+                            <div class="media-left">\
+                            <img src="' + CurrentUserPhoto + '" alt="Author Photo" class="user-image-56"></div>\
+                            <div class="media-body reply-comment-box">\
+                            <textarea id="ReplyComment_' + id + '" onkeyup="Comments.RemovePreviousComment('+id+',this,event,\'reply\');" onkeypress="Comments.PostCommentReply(' + id + ',event);" class="form-control" spellcheck="true" placeholder="Type your comment here and press Enter Key (Minimum ' + commentsMinLength + ' characters)"></textarea>\
+                            <img id="PostLoader_' + id + '" src="/images/csharp/ajax-loader-small.gif" alt="Loading..." class="hide">\
+                            </div></div>';
+    return postReplyBox;
+}
+function removePrevComment() {
+    if (PreviousCommentId != "") {
+        if (typeof(PreviousCommentId) !== "number") {
+            jQuery(PreviousCommentId).remove();
+        } else {
+            RemoveEditView(PreviousCommentId);
+        }
+    }
+}

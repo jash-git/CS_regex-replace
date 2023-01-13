@@ -1,0 +1,57 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<!-- saved from url=(0041)http://jashliao.eu/wordpress/NowTime.html -->
+<html xmlns="http://www.w3.org/1999/xhtml"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+	
+     <title>calendar+time</title>
+	  <style type="text/css">
+		html{font-size:20px;}
+		fieldset{width:450px; margin: 0 auto;}
+		legend{font-weight:bold; font-size:24px;}
+		.label{float:left; width:100px; margin-left:20px;}
+		.left{margin-left:180px;font-size:18px;}
+		.input{width:500px;}
+		span{color: #666666;}
+	  </style>	 
+     <style type="text/css">
+         *{margin: 0px;padding: 0px;}
+         .calendar{text-align: center;border-width: thin;}
+         .calendar th{background-color: #6666FF;}
+         .calendar .today{background-color: Orange;color: Red;font-weight: bold;}
+     </style>
+	<style type="text/css">
+		*{margin: 0px;padding: 0px;}
+		.calendar{text-align: center;border-width: thin;}
+		.calendar th{background-color: #A9E2F3;}
+		.calendar .today{background-color: #00FF00;font-weight: bold;}
+		.calendar .weekends{color: Red;font-weight: bold;}
+	</style>
+ </head>
+ <body>
+	<script language="JavaScript"> 
+	<!--  
+	document.write('<div align="center"><font size="6">'); 
+	document.write("<span id='clock'></span>"); 
+	var now,hours,minutes,seconds,timeValue; 
+	function showtime(){ 
+	now = new Date(); 
+	hours = now.getHours(); 
+	minutes = now.getMinutes(); 
+	seconds = now.getSeconds();
+	timeValue = now.getFullYear()+"年";
+	timeValue += (((now.getMonth()+1) < 10) ? " 0" : " ")+(now.getMonth()+1)+"月";
+	timeValue += ((now.getDate()< 10) ? " 0" : " ")+now.getDate()+"日<br>";
+	timeValue += (hours >= 12) ? "下午 " : "上午 "; 
+	timeValue += ((hours > 12) ? hours - 12 : hours) + " 點"; 
+	timeValue += ((minutes < 10) ? " 0" : " ") + minutes + " 分"; 
+	timeValue += ((seconds < 10) ? " 0" : " ") + seconds + " 秒"; 
+	clock.innerHTML = timeValue; 
+	setTimeout("showtime()",100); 
+	} 
+	showtime(); 
+	document.write('</font></div>');
+	//--> 
+	</script><div align="center"><font size="6"><span id="clock">2023年 01月 13日<br>下午 3 點 39 分 04 秒</span></font></div>
+	
+ 
+ 
+</body></html>
