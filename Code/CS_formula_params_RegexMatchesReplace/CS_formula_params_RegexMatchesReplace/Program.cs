@@ -32,7 +32,7 @@ namespace CS_formula_params_RegexMatchesReplace
                 strinput = Regex.Replace(strinput, $"\"{match.Groups[1].Value}\"?:", "");
             }
 
-            //找出所有product_code的值 並把對應json元件名稱換成空字串 方便後續轉成陣列元素
+            //找出所有condiment_code的值 並把對應json元件名稱換成空字串 方便後續轉成陣列元素
             MatchCollection matches02 = Regex.Matches(strinput, @"""condiment_code""?:?""(([\s\S])*?)"",");
             foreach (Match match in matches02)
             {
@@ -41,9 +41,11 @@ namespace CS_formula_params_RegexMatchesReplace
                 strinput = Regex.Replace(strinput, $"\"{match.Groups[1].Value}\"?:", "");
             }
 
+            //將兩段JSON元件轉陣列元件
             strinput = strinput.Replace(@"""formula_data"":{", @"""formula_data"":[");
             strinput = strinput.Replace(@"},""condiment_bom"":{", @"],""condiment_bom"":[");
             strinput = strinput.Substring(0, strinput.Length - 2)+"]}";
+            
             Console.WriteLine("\n"+ strinput);
 
             Pause();
